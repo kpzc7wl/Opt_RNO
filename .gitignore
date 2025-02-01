@@ -1,0 +1,35 @@
+__pycache__
+*.egg-info
+.ipynb_checkpoints
+example_data
+nozzle_data
+workplace
+train_ad*
+train_seg*
+# zip files
+*.zip
+*.rar 
+*.tar
+*.tar.gz
+# model files
+*.pth
+*.pt
+*.ckpt
+*.jit
+*.bsub
+*.stdout
+*.stderr
+*.txt
+*.java
+*.mph
+# *.ipynb
+*.npy
+*.json
+*.lock
+hf-models
+hf-base-models
+hf_models
+hf_base_models
+notebook
+data
+fig
