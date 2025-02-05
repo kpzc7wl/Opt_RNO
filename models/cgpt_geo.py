@@ -330,20 +330,80 @@ class PhysicsAttention(nn.Module):
         out = self.out_proj(out)
         return out
 
-class PhysicsFourier(nn.Module):
-    """
-        Physics Fourier implementation.
-    """
+# class PhysicsFourier(nn.Module):
+#     """
+#         Physics Fourier implementation.
+#     """
 
+#     def __init__(self, config):
+#         super(PhysicsFourier, self).__init__()
+#         assert config.n_embd % config.n_head == 0
+#         self.size_head = config.n_embd // config.n_head
+#         # output projection
+#         self.out_proj = nn.Linear(config.n_embd, config.n_embd) 
+#         self.in_proj = nn.Linear(config.n_embd, config.n_embd)
+#         self.proj_slice = nn.Linear(self.size_head, config.n_slice)
+#         # self.temperature = nn.Parameter(torch.ones([1, config.n_head, 1, 1]) * 0.5)
+#         self.temperature = nn.Parameter(torch.ones([1, config.n_head, 1, 1]) / torch.sqrt(self.size_head * torch.ones(1)))
+
+#         self.n_head = config.n_head
+#         self.eps = torch.exp(- torch.tensor(2.0).square())
+
+#         self.modes1 = config.modes
+#         self.scale = (1 / (config.n_embd*config.n_embd))
+#         # self.weights1 = nn.Parameter(self.scale * torch.rand(self.size_head, self.size_head, self.modes1, 2))
+#         self.weights1 = nn.Parameter(self.scale * torch.rand(config.n_head, self.size_head, self.size_head, self.modes1, dtype=torch.cfloat))
+        
+
+#     '''
+#         Physics Fourier
+#     '''
+#     def forward(self, x_q, x_r, y, mask=None, dist=None, layer_past=None):
+#         q = x_q
+
+#         B, T, C = q.size() 
+
+#         # project all points onto slices
+#         tmp_x = self.in_proj(q).view(B, T, self.n_head, self.size_head).transpose(1, 2)  # (B, nh, T, hs)    # xi
+#         slice_weights = (self.proj_slice(tmp_x) / self.temperature).softmax(dim=-1)   # B nh T S
+#         slice_norm = slice_weights.sum(2)  # B nh S
+#         slice = torch.einsum("bhnc,bhns->bhsc", tmp_x, slice_weights)
+#         z = slice / (slice_norm[:, :, :, None] + 1e-5)
+
+
+#         z = z.transpose(2, 3).view(B, self.n_head, self.size_head, -1) # (B, nh, hs, S)
+#         z_fft = torch.fft.rfft(z)
+
+#         # Multiply relevant Fourier modes
+#         out_ft = torch.zeros(B, self.n_head, self.size_head, z.size(-1)//2 + 1, device=z.device)
+#         out = torch.einsum("bhix,hiox->bhox", z_fft[..., :self.modes1], self.weights1) 
+#         # print('out.shape: ', out.shape)
+#         out_ft[..., :self.modes1] = out
+
+#         #Return to physical space
+#         out = torch.fft.irfft(out_ft, n=z.size(-1)).view(B, self.n_head, self.size_head, -1)
+#         out = out.transpose(2, 3) # (B, nh, S, hs)
+#         # print('out.shape: ', out.shape)
+
+#         # output projection
+#         out = torch.einsum("b h g c, b h n g -> b h n c", out, slice_weights)
+#         out = rearrange(out, 'b h n d -> b n (h d)')
+#         out = self.out_proj(out)
+#         return out
+
+
+class VirtualFourier(nn.Module):
+    """
+        Virtual-Fourier implementation.
+    """
     def __init__(self, config):
-        super(PhysicsFourier, self).__init__()
+        super(VirtualFourier, self).__init__()
         assert config.n_embd % config.n_head == 0
         self.size_head = config.n_embd // config.n_head
         # output projection
         self.out_proj = nn.Linear(config.n_embd, config.n_embd) 
         self.in_proj = nn.Linear(config.n_embd, config.n_embd)
         self.proj_slice = nn.Linear(self.size_head, config.n_slice)
-        # self.temperature = nn.Parameter(torch.ones([1, config.n_head, 1, 1]) * 0.5)
         self.temperature = nn.Parameter(torch.ones([1, config.n_head, 1, 1]) / torch.sqrt(self.size_head * torch.ones(1)))
 
         self.n_head = config.n_head
@@ -351,50 +411,7 @@ class PhysicsFourier(nn.Module):
 
         self.modes1 = config.modes
         self.scale = (1 / (config.n_embd*config.n_embd))
-        # self.weights1 = nn.Parameter(self.scale * torch.rand(self.size_head, self.size_head, self.modes1, 2))
-        self.weights1 = nn.Parameter(self.scale * torch.rand(config.n_head, self.size_head, self.size_head, self.modes1, dtype=torch.cfloat))
-        
-
-    '''
-        Physics Fourier
-    '''
-    def forward(self, x_q, x_r, y, mask=None, dist=None, layer_past=None):
-        q = x_q
-
-        B, T, C = q.size() 
-
-        # project all points onto slices
-        tmp_x = self.in_proj(q).view(B, T, self.n_head, self.size_head).transpose(1, 2)  # (B, nh, T, hs)    # xi
-        slice_weights = (self.proj_slice(tmp_x) / self.temperature).softmax(dim=-1)   # B nh T S
-        slice_norm = slice_weights.sum(2)  # B nh S
-        slice = torch.einsum("bhnc,bhns->bhsc", tmp_x, slice_weights)
-        z = slice / (slice_norm[:, :, :, None] + 1e-5)
-
-
-        z = z.transpose(2, 3).view(B, self.n_head, self.size_head, -1) # (B, nh, hs, S)
-        z_fft = torch.fft.rfft(z)
-
-        # Multiply relevant Fourier modes
-        out_ft = torch.zeros(B, self.n_head, self.size_head, z.size(-1)//2 + 1, device=z.device)
-        out = torch.einsum("bhix,hiox->bhox", z_fft[..., :self.modes1], self.weights1) 
-        # print('out.shape: ', out.shape)
-        out_ft[..., :self.modes1] = out
-
-        #Return to physical space
-        out = torch.fft.irfft(out_ft, n=z.size(-1)).view(B, self.n_head, self.size_head, -1)
-        out = out.transpose(2, 3) # (B, nh, S, hs)
-        # print('out.shape: ', out.shape)
-
-        # output projection
-        out = torch.einsum("b h g c, b h n g -> b h n c", out, slice_weights)
-        out = rearrange(out, 'b h n d -> b n (h d)')
-        out = self.out_proj(out)
-        return out
-
-
-class VirtualFourier(PhysicsFourier):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)   
+        self.weights1 = nn.Parameter(self.scale * torch.rand(config.n_head, self.size_head, self.size_head, self.modes1, dtype=torch.cfloat))  
 
     def forward(self, x_q, x_r, y, mask=None, dist=None, layer_past=None):
         q = x_q
@@ -413,13 +430,11 @@ class VirtualFourier(PhysicsFourier):
         # Multiply relevant Fourier modes
         out_ft = torch.zeros(B, self.n_head, self.size_head, z.size(-1)//2 + 1, device=z.device)
         out = torch.einsum("bhix,hiox->bhox", z_fft[..., :self.modes1], self.weights1) 
-        # print('out.shape: ', out.shape)
         out_ft[..., :self.modes1] = out
 
         #Return to physical space
         out = torch.fft.irfft(out_ft, n=z.size(-1)).view(B, self.n_head, self.size_head, -1)
         out = out.transpose(2, 3) # (B, nh, S, hs)
-        # print('out.shape: ', out.shape)
 
         # output projection
         out = torch.einsum("b h g c, b h n g -> b h n c", out, logits.softmax(dim=-1))
@@ -577,19 +592,13 @@ class RNO(nn.Module):
         
         y_r = [_g.ndata['y'] for _g in gs_r] 
         y_r = pad_sequence(y_r).permute(1, 0, 2).float().to(device) # B, T_q, dim_y
-        y_r = y_r[..., :self.output_size] # If y includes sensitivity, remove it
-        # print(x.max(), x.min(), x_r.max(), x_r.min(), y_r.max(), y_r.min())        
+        y_r = y_r[..., :self.output_size] # If y includes sensitivity, remove it     
         
         delta_a = x - x_r
-        # delta_a = torch.cat([xx, delta_a[..., -1, None]], dim=-1).float().to(g.device)
 
         # # Fourier embedding
         if self.horiz_fourier_dim > 0:
-            x = horizontal_fourier_embedding(x, self.horiz_fourier_dim)
-            # x_shifted = horizontal_fourier_embedding(x_shifted, self.horiz_fourier_dim)
-            # z = horizontal_fourier_embedding(z, self.horiz_fourier_dim)
-           
-        # x_shifted = self.trunk_mlp(x_shifted)        
+            x = horizontal_fourier_embedding(x, self.horiz_fourier_dim)     
         x = self.trunk_mlp(x)      
 
 
@@ -605,28 +614,18 @@ class RNO(nn.Module):
         x = torch.stack([x] + z, dim=0) # Pure MLP
         x = x.sum(dim=0)
 
-        # x_0 = x.clone()
         dist_x = None # No Distance-Aware (DA)
         for i, block in enumerate(self.blocks):
-            # y = MultipleTensors([x] + z) 
             y = MultipleTensors([x]) # sum all functions before attn layers 
             x = x + block(x, x, y, dist=dist_x) # query-key uses x
             # x = block(x, x, y, dist=dist_x)
 
-        # delta_y = self.out_mlp(x)
-        # # x = y_r +  delta_y
-        # x = y_r +  delta_y * 0 # Ref baseline
+
         x = self.out_mlp(x)  # No delta_u
 
-        # x_out = torch.cat([x[i, :num] for i, num in enumerate(g.batch_num_nodes())],dim=0)
-        # y_ref = torch.cat([y_r[i, :num, :] for i, num in enumerate(g.batch_num_nodes())],dim=0)
         x_out = torch.cat([x[i, :len(x_)] for i, x_ in enumerate(x_q)],dim=0)
         y_ref = torch.cat([y_r[i, :len(x_), :] for i, x_ in enumerate(x_q)],dim=0)
 
-        # print(x_out.abs().max(dim=0)[0], y_ref.abs().max(dim=0)[0])
-        # if x_out.isnan().any(): print('x_out has nan.')
-        # if y_ref.isnan().any(): print('y_ref has nan.')
-        # print(x_out.abs().sum(dim=0), y_ref.abs().sum(dim=0))
 
         return x_out, y_ref
 

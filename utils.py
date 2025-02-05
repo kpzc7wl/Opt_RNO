@@ -959,20 +959,26 @@ def shape_obj(x, y, i=0, N=100):
     
     return J_reg, J
 
-def shape_obj_batch(gs, y, x_norm, y_norm, spatial_dim=2, create_graph=True, retain_graph=True, original=True):
+def shape_obj_batch(gs, y, x_norm, y_norm, spatial_dim=2, create_graph=True, retain_graph=True, original=True, objective=None):
     '''Input:  xs and y are in transformed space.
         Output: dJdx in original space if original==True
     '''
     xs = [g_.ndata['x'] for g_ in gs]
     ys = chunk_as(y, xs)  
     
+    if xs[0].shape[-1] == 4:
+        objective = shape_obj
+    elif xs[0].shape[-1] == 5:
+        objective = inductor_obj
+    else:
+        raise NotImplementedError
+
     dJdx_l = []
     J = 0
     for x_, y_ in zip(xs, ys):
         x_orig = x_norm.transform(x_, inverse=True)
         y_orig = y_norm.transform(y_, inverse=True)
-        # J_, _ = shape_obj(x_orig, y_orig)
-        J_, _ = inductor_obj(x_orig, y_orig)
+        J_, _ = objective(x_orig, y_orig)
         # J_ = y_orig[:, 3].mean() # Test autograd through model
         J = J + J_      
 
